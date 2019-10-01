@@ -1,6 +1,15 @@
 # coding: utf-8
 class User < ApplicationRecord
-  has_many :microposts, dependent: :destroy 
+  has_many :microposts, dependent: :destroy
+  has_many :active_relationships, class_name: "Relationship",
+           foreign_key: "follower_id",
+           dependent: :destroy
+  has_many :passive_relationships, class_name:  "Relationship",
+                                   foreign_key: "followed_id",
+                                   dependent:   :destroy
+  has_many :following, through: :active_relationships, source: :followed
+  has_many :followers, through: :passive_relationships, source: :follower
+  
   attr_accessor :remember_token, :activation_token
   before_save   :downcase_email
   before_create :create_activation_digest
@@ -48,10 +57,29 @@ class User < ApplicationRecord
   end
 
   def feed
-    Micropost.where("user_id = ?", id)
+    # Micropost.where("user_id IN (?) OR user_id = ?", following_ids, id)
+    # これだと2回データを呼び出している？
+    # Micropost.where("user_id IN (:following_ids) OR user_id = :user_id", following_ids: following_ids, user_id: id)
+    following_ids = "SELECT followed_id FROM relationships
+                     WHERE follower_id = :user_id"
+    Micropost.where("user_id IN (#{following_ids})
+                     OR user_id = :user_id", user_id: id)
   end
   
-  
+   # ユーザーをフォローする
+  def follow(other_user)
+    following << other_user
+  end
+
+  # ユーザーをフォロー解除する
+  def unfollow(other_user)
+    active_relationships.find_by(followed_id: other_user.id).destroy
+  end
+
+  # 現在のユーザーがフォローしてたらtrueを返す
+  def following?(other_user)
+    following.include?(other_user)
+  end
   private
 
     # メールアドレスをすべて小文字にする
@@ -69,5 +97,4 @@ class User < ApplicationRecord
       self.remember_token = User.new_token
       update_attribute(:remember_digest, User.digest(remember_token))
     end
-  
 end
